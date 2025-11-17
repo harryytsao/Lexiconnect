@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import SearchBar from "./components/SearchBar";
 import DatabaseStatistics from "./components/DatabaseStatistics";
+import NodeDetails from "./components/NodeDetails";
 
 // Dynamically import the graph component to avoid SSR issues with Sigma.js
 const GraphVisualization = dynamic(
@@ -13,20 +14,39 @@ const GraphVisualization = dynamic(
 
 export default function Home() {
   const [mounted, setMounted] = useState(false);
-  const [visualizeWord, setVisualizeWord] = useState<string | undefined>(undefined);
-  const [visualizeType, setVisualizeType] = useState<"word" | "morpheme">("word");
+  const [visualizeWord, setVisualizeWord] = useState<string | undefined>(
+    undefined
+  );
+  const [visualizeType, setVisualizeType] = useState<"word" | "morpheme">(
+    "word"
+  );
+  const [selectedNode, setSelectedNode] = useState<{
+    label: string;
+    type: string;
+    color: string;
+    properties: Record<string, any>;
+  } | null>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
-  
+
   const handleVisualizeWord = (word: string, type: "word" | "morpheme") => {
     setVisualizeWord(word);
     setVisualizeType(type);
   };
-  
+
   const handleClearVisualization = () => {
     setVisualizeWord(undefined);
+  };
+
+  const handleNodeClick = (node: {
+    label: string;
+    type: string;
+    color: string;
+    properties: Record<string, any>;
+  }) => {
+    setSelectedNode(node);
   };
 
   return (
@@ -38,14 +58,15 @@ export default function Home() {
             Linguistic Network Visualization
           </h1>
           <p className="text-sm text-stone-600">
-            Search morphemes and words, then explore their connections in the graph.
+            Search morphemes and words, then explore their connections in the
+            graph.
           </p>
         </div>
 
         {/* Main Grid Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-6 mb-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr),380px] gap-6 mb-6">
           {/* Left Column: Search and Graph */}
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             {/* Search Toolbar */}
             <SearchBar onVisualizeWord={handleVisualizeWord} />
 
@@ -69,7 +90,8 @@ export default function Home() {
                       />
                     </svg>
                     <span className="text-sm font-medium text-blue-900">
-                      Visualizing morphology for: <span className="font-bold">{visualizeWord}</span>
+                      Visualizing morphology for:{" "}
+                      <span className="font-bold">{visualizeWord}</span>
                     </span>
                   </div>
                   <button
@@ -80,10 +102,17 @@ export default function Home() {
                   </button>
                 </div>
               )}
-              
-              <div className="relative w-full bg-stone-50" style={{ height: "calc(100vh - 280px)", minHeight: "500px" }}>
+
+              <div
+                className="relative w-full bg-stone-50"
+                style={{ height: "calc(100vh - 280px)", minHeight: "500px" }}
+              >
                 {mounted ? (
-                  <GraphVisualization searchWord={visualizeWord} searchType={visualizeType} />
+                  <GraphVisualization
+                    searchWord={visualizeWord}
+                    searchType={visualizeType}
+                    onNodeClick={handleNodeClick}
+                  />
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="flex items-center space-x-2">
@@ -111,9 +140,10 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right Column: Database Statistics */}
-          <div className="lg:sticky lg:top-6 h-fit">
+          {/* Right Column: Database Statistics and Node Details */}
+          <div className="lg:sticky lg:top-6 space-y-4 max-h-[calc(100vh-3rem)] overflow-y-auto">
             <DatabaseStatistics />
+            <NodeDetails node={selectedNode} />
           </div>
         </div>
       </div>

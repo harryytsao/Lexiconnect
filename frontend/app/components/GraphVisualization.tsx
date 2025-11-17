@@ -325,6 +325,7 @@ function buildGraphFromData(data: any, isWordVisualization: boolean = false) {
         size: dynamicSize,
         color: node.color || "#64748b",
         nodeType: node.type, // Store as nodeType to avoid conflict with Sigma's type
+        properties: node.properties || {}, // Store all node properties for detail view
         // temporary, will be overwritten by radial layout:
         x: 0,
         y: 0,
@@ -591,7 +592,11 @@ function LoadGraph({
   return null;
 }
 
-function GraphEvents() {
+function GraphEvents({ 
+  onNodeClick 
+}: { 
+  onNodeClick?: (node: { label: string; type: string; color: string; properties: Record<string, any> }) => void 
+}) {
   const registerEvents = useRegisterEvents();
   const sigma = useSigma();
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
@@ -609,12 +614,21 @@ function GraphEvents() {
         sigma.refresh();
       },
       clickNode: (event) => {
-        console.log("Clicked node:", event.node);
         const nodeData = sigma.getGraph().getNodeAttributes(event.node);
-        console.log("Node data:", nodeData);
+        console.log("Clicked node:", event.node, nodeData);
+        
+        // Call the callback with formatted node data
+        if (onNodeClick) {
+          onNodeClick({
+            label: nodeData.label || event.node,
+            type: nodeData.nodeType || "Unknown",
+            color: nodeData.color || "#64748b",
+            properties: nodeData.properties || {},
+          });
+        }
       },
     });
-  }, [registerEvents, sigma]);
+  }, [registerEvents, sigma, onNodeClick]);
 
   return (
     <>
@@ -761,11 +775,18 @@ function GraphLegend() {
 interface GraphVisualizationProps {
   searchWord?: string;
   searchType?: "word" | "morpheme";
+  onNodeClick?: (node: {
+    label: string;
+    type: string;
+    color: string;
+    properties: Record<string, any>;
+  }) => void;
 }
 
 export default function GraphVisualization({
   searchWord,
   searchType = "word",
+  onNodeClick,
 }: GraphVisualizationProps = {}) {
   const exportOptions = useMemo<ExportOption[]>(
     () => [
@@ -1292,7 +1313,7 @@ export default function GraphVisualization({
           onDataLoaded={handleDataLoaded}
           onError={handleGraphError}
         />
-        <GraphEvents />
+        <GraphEvents onNodeClick={onNodeClick} />
         {hasData && <ZoomControls />}
         {hasData && <GraphLegend />}
       </SigmaContainer>
