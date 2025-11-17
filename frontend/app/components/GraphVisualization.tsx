@@ -33,6 +33,7 @@ type GraphQueryFilters = {
   language?: string;
   nodeTypes?: string[];
   searchWord?: string;
+  searchType?: "word" | "morpheme";
 };
 
 const MIN_GRAPH_LIMIT = 10;
@@ -107,6 +108,40 @@ async function fetchWordGraphData(word: string, signal?: AbortSignal) {
   }
 }
 
+// Fetch morpheme-specific graph data from API
+async function fetchMorphemeGraphData(morpheme: string, signal?: AbortSignal) {
+  try {
+    const params = new URLSearchParams();
+    params.append("morpheme", morpheme);
+
+    const url = `/api/v1/linguistic/morpheme-graph-data?${params.toString()}`;
+    const response = await fetch(url, { signal });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch morpheme graph data: ${response.status} ${response.statusText}`
+      );
+    }
+    const data = await response.json();
+    console.log("Fetched morpheme graph data:", {
+      morpheme,
+      nodeCount: data.nodes?.length || 0,
+      edgeCount: data.edges?.length || 0,
+      stats: data.stats,
+      nodeTypes: data.nodes?.map((n: any) => n.type) || [],
+      sampleNodes: data.nodes?.slice(0, 5) || [],
+      sampleEdges: data.edges?.slice(0, 5) || [],
+    });
+    return data;
+  } catch (error) {
+    const err = error as { name?: string; message?: string };
+    if (err?.name === "AbortError") {
+      throw error;
+    }
+    console.error("Error fetching morpheme graph data:", error);
+    throw error;
+  }
+}
+
 // Fetch graph data from API
 async function fetchGraphData(options: GraphFetchOptions = {}) {
   const { limit, textId, language, nodeTypes, signal } = options;
@@ -161,6 +196,44 @@ async function fetchGraphData(options: GraphFetchOptions = {}) {
   }
 }
 
+// Apply horizontal hierarchical layout for word visualization
+function applyWordLayout(graph: MultiDirectedGraph) {
+  // Define the hierarchy order for word visualization
+  const typeOrder = ["Text", "Section", "Phrase", "Word", "Morpheme", "Gloss"];
+
+  // Group nodes by type
+  const nodesByType: Record<string, string[]> = {};
+
+  graph.forEachNode((id, attrs) => {
+    const t = attrs.nodeType || "Other";
+    if (!nodesByType[t]) nodesByType[t] = [];
+    nodesByType[t].push(id);
+  });
+
+  // Horizontal spacing between nodes of the same type
+  const horizontalSpacing = 150;
+  // Vertical spacing between different types
+  const verticalSpacing = 100;
+
+  typeOrder.forEach((type, levelIndex) => {
+    const nodes = nodesByType[type] || [];
+    if (!nodes.length) return;
+
+    // Calculate total width needed for this level
+    const totalWidth = (nodes.length - 1) * horizontalSpacing;
+    // Start from negative half of total width to center the nodes
+    const startX = -totalWidth / 2;
+    // Y position based on level
+    const y = levelIndex * verticalSpacing;
+
+    nodes.forEach((nodeId, i) => {
+      const x = startX + i * horizontalSpacing;
+      graph.setNodeAttribute(nodeId, "x", x);
+      graph.setNodeAttribute(nodeId, "y", y);
+    });
+  });
+}
+
 // Apply radial layout: nodes grouped by type in concentric rings
 function applyRadialLayout(graph: MultiDirectedGraph) {
   // Define the hierarchy order
@@ -193,7 +266,7 @@ function applyRadialLayout(graph: MultiDirectedGraph) {
 }
 
 // Build graph from API data
-function buildGraphFromData(data: any) {
+function buildGraphFromData(data: any, isWordVisualization: boolean = false) {
   const graph = new MultiDirectedGraph();
 
   // Track sequential IDs for Section nodes
@@ -258,8 +331,12 @@ function buildGraphFromData(data: any) {
       });
     });
 
-    // Apply radial layout: nodes grouped by type in concentric rings
-    applyRadialLayout(graph);
+    // Apply appropriate layout based on visualization type
+    if (isWordVisualization) {
+      applyWordLayout(graph);
+    } else {
+      applyRadialLayout(graph);
+    }
 
     // Add edges
     if (data.edges && data.edges.length > 0) {
@@ -404,25 +481,45 @@ function buildGraphFromData(data: any) {
     });
   }
 
-  // Apply ForceAtlas2 gently to untangle edges, not collapse rings
+  // Apply ForceAtlas2 layout - use minimal settings for word visualization
   if (graph.order > 0) {
     const baseSettings = forceAtlas2.inferSettings(graph);
 
-    forceAtlas2.assign(graph, {
-      iterations: 50, // slightly more iterations for better separation
-      settings: {
-        ...baseSettings,
-        gravity: 0.03, // even lower gravity to preserve ring structure
-        scalingRatio: 15, // increase spread to reduce edge overlap
-        strongGravityMode: false,
-        barnesHutOptimize: true,
-        slowDown: 15, // slower movement for gentler adjustments
-        linLogMode: true,
-        outboundAttractionDistribution: true,
-        adjustSizes: true,
-        edgeWeightInfluence: 0.2, // reduce edge influence for cleaner layout
-      },
-    });
+    if (isWordVisualization) {
+      // Very gentle force layout for word visualization to maintain horizontal structure
+      forceAtlas2.assign(graph, {
+        iterations: 20, // fewer iterations to keep layout stable
+        settings: {
+          ...baseSettings,
+          gravity: 0.01, // minimal gravity
+          scalingRatio: 5, // reduced spread
+          strongGravityMode: false,
+          barnesHutOptimize: true,
+          slowDown: 20, // very slow movement
+          linLogMode: false,
+          outboundAttractionDistribution: false,
+          adjustSizes: false,
+          edgeWeightInfluence: 0.05, // minimal edge influence
+        },
+      });
+    } else {
+      // Standard force layout for general graph visualization
+      forceAtlas2.assign(graph, {
+        iterations: 50, // slightly more iterations for better separation
+        settings: {
+          ...baseSettings,
+          gravity: 0.03, // even lower gravity to preserve ring structure
+          scalingRatio: 15, // increase spread to reduce edge overlap
+          strongGravityMode: false,
+          barnesHutOptimize: true,
+          slowDown: 15, // slower movement for gentler adjustments
+          linLogMode: true,
+          outboundAttractionDistribution: true,
+          adjustSizes: true,
+          edgeWeightInfluence: 0.2, // reduce edge influence for cleaner layout
+        },
+      });
+    }
   }
 
   return graph;
@@ -445,13 +542,21 @@ function LoadGraph({
     const loadData = async () => {
       try {
         let data;
+        const isWordVisualization = !!filters.searchWord;
 
-        // If searching for a specific word, use word-graph-data endpoint
+        // If searching for a specific word or morpheme, use appropriate endpoint
         if (filters.searchWord) {
-          data = await fetchWordGraphData(
-            filters.searchWord,
-            controller.signal
-          );
+          if (filters.searchType === "morpheme") {
+            data = await fetchMorphemeGraphData(
+              filters.searchWord,
+              controller.signal
+            );
+          } else {
+            data = await fetchWordGraphData(
+              filters.searchWord,
+              controller.signal
+            );
+          }
         } else {
           // Otherwise use regular graph-data endpoint
           data = await fetchGraphData({
@@ -465,7 +570,7 @@ function LoadGraph({
         }
 
         onDataLoaded?.(data);
-        const graph = buildGraphFromData(data);
+        const graph = buildGraphFromData(data, isWordVisualization);
         loadGraph(graph);
       } catch (error) {
         const err = error as { name?: string; message?: string };
@@ -655,10 +760,12 @@ function GraphLegend() {
 
 interface GraphVisualizationProps {
   searchWord?: string;
+  searchType?: "word" | "morpheme";
 }
 
 export default function GraphVisualization({
   searchWord,
+  searchType = "word",
 }: GraphVisualizationProps = {}) {
   const exportOptions = useMemo<ExportOption[]>(
     () => [
@@ -698,25 +805,26 @@ export default function GraphVisualization({
     limit: DEFAULT_GRAPH_LIMIT,
   });
 
-  // Update filters when searchWord changes
+  // Update filters when searchWord or searchType changes
   useEffect(() => {
     if (searchWord) {
       setGraphFilters((prev) => ({
         ...prev,
         searchWord,
+        searchType,
       }));
       setConnectionError(null);
       // Force a refresh to update Sigma settings
       setRefreshKey((prev) => prev + 1);
     } else {
       setGraphFilters((prev) => {
-        const { searchWord: _, ...rest } = prev;
+        const { searchWord: _, searchType: __, ...rest } = prev;
         return rest;
       });
       // Force a refresh when clearing word search
       setRefreshKey((prev) => prev + 1);
     }
-  }, [searchWord]);
+  }, [searchWord, searchType]);
   const [hasData, setHasData] = useState<boolean | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
 

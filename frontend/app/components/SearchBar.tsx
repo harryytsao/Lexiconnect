@@ -15,10 +15,13 @@ interface ConcordanceResult {
 
 interface SearchBarProps {
   onSearchResults?: (results: ConcordanceResult[]) => void;
-  onVisualizeWord?: (word: string) => void;
+  onVisualizeWord?: (word: string, type: "word" | "morpheme") => void;
 }
 
-export default function SearchBar({ onSearchResults, onVisualizeWord }: SearchBarProps) {
+export default function SearchBar({
+  onSearchResults,
+  onVisualizeWord,
+}: SearchBarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchType, setSearchType] = useState<"morpheme" | "word">("morpheme");
   const [results, setResults] = useState<ConcordanceResult[]>([]);
@@ -203,13 +206,19 @@ export default function SearchBar({ onSearchResults, onVisualizeWord }: SearchBa
                         <span>• Word {result.word_index + 1}</span>
                       )}
                     </div>
-                    
-                    {/* Visualize button for word search results */}
-                    {searchType === "word" && onVisualizeWord && (
+
+                    {/* Visualize button for both word and morpheme search results */}
+                    {onVisualizeWord && (
                       <button
-                        onClick={() => onVisualizeWord(result.target)}
+                        onClick={() =>
+                          onVisualizeWord(result.target, searchType)
+                        }
                         className="text-xs px-2 py-1 bg-stone-600 hover:bg-stone-700 text-white rounded transition-colors flex items-center space-x-1"
-                        title="Visualize word morphology"
+                        title={
+                          searchType === "word"
+                            ? "Visualize word morphology"
+                            : "Visualize morpheme in context"
+                        }
                       >
                         <svg
                           className="w-3 h-3"

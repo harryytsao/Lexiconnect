@@ -14,13 +14,15 @@ const GraphVisualization = dynamic(
 export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [visualizeWord, setVisualizeWord] = useState<string | undefined>(undefined);
+  const [visualizeType, setVisualizeType] = useState<"word" | "morpheme">("word");
 
   useEffect(() => {
     setMounted(true);
   }, []);
   
-  const handleVisualizeWord = (word: string) => {
+  const handleVisualizeWord = (word: string, type: "word" | "morpheme") => {
     setVisualizeWord(word);
+    setVisualizeType(type);
   };
   
   const handleClearVisualization = () => {
@@ -81,7 +83,7 @@ export default function Home() {
               
               <div className="relative w-full bg-stone-50" style={{ height: "calc(100vh - 280px)", minHeight: "500px" }}>
                 {mounted ? (
-                  <GraphVisualization searchWord={visualizeWord} />
+                  <GraphVisualization searchWord={visualizeWord} searchType={visualizeType} />
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="flex items-center space-x-2">
